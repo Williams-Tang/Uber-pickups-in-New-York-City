@@ -1,0 +1,413 @@
+---
+title: "Uber Pickups in New York City"
+author: "Williams"
+date: "6/5/2022"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Prepartion
+
+```{r, message=FALSE}
+##Importing the packages
+library(animation)
+library(ggpmisc)
+library(reshape2)#Melt function
+library(mice)##checking NA data
+library(ggmap)###google map
+library(stringi)#interval function
+library(lubridate)###Date.Time Format
+library(dplyr)#group function
+library(base)
+library(anytime) #month function
+library(ggplot2)####
+library(tidyverse)
+library(knitr)
+library(ggthemes)
+library(readr)
+library(viridis)
+library(hexbin)
+library(scales)
+library(plotly)
+library(kableExtra)
+library(gganimate)
+library(corrplot)
+library(GGally)
+library(tmap)
+```
+
+```{r, message=FALSE}
+##Reading the files
+apr14 <- read_csv("project/archive (5)/uber-raw-data-apr14.csv")
+may14 <- read_csv("project/archive (5)/uber-raw-data-may14.csv")
+jun14 <- read_csv("project/archive (5)/uber-raw-data-jun14.csv")
+jul14 <- read_csv("project/archive (5)/uber-raw-data-jul14.csv")
+aug14 <- read_csv("project/archive (5)/uber-raw-data-aug14.csv")
+sep14 <- read_csv("project/archive (5)/uber-raw-data-sep14.csv")
+```
+
+```{r, message=FALSE}
+##Merging all the data in 2014
+rbind(apr14, may14, jun14, jul14, aug14, sep14) -> uber_raw_date
+uber_total <- uber_raw_date
+```
+
+# Data cleaning and formatting
+
+```{r, message=FALSE}
+#Changing Date.Time format
+uber_total$`Date_Time` <- as.POSIXct(uber_total$`Date/Time`, format = "%m/%d/%Y %H:%M:%S")
+```
+
+```{r, message=FALSE}
+#Adding 'Month','Day','Hour','Weekday' column, changing the date to the right format
+uber_total %>%
+     mutate(Date_Time = as.POSIXct(`Date/Time`, format = "%m/%d/%Y %H:%M:%S"),
+            Month = month(Date_Time),
+            Day = day(Date_Time),
+            Hour = hour(Date_Time),
+            Weekday = wday(Date_Time),
+            Date = date(Date_Time)) -> uber_total
+```
+
+# Data analysis and visualisation
+
+```{r, message=FALSE}
+#Trips per month
+uber_total %>%
+  group_by(Month) %>%
+  tally() %>%
+  ggplot(aes(x= Month , y= n)) + 
+  scale_x_continuous(breaks = seq(4,9,1)) +
+  geom_col(fill="blue")+
+  labs(x= 'Month' ,
+       y= 'Trips' ,
+       title = 'Trips each month in 2014' ,
+       subtitle = 'There was a big rise in September') +
+  scale_y_continuous(labels = comma)
+```
+
+```{r}
+#Trips per hour
+uber_total %>%
+  group_by(Hour) %>%
+  tally()%>%
+  ggplot(aes(x= Hour , y= n)) + 
+  geom_col(fill="red")+
+  scale_x_continuous(breaks = seq(0,23,1)) +
+  labs(x= 'Hour' ,
+       y= 'Trips' ,
+       title = 'Trips each hour in 2014' ,
+       subtitle = 'Peak hours in 7-8 AM and 4-6 PM') +
+  scale_y_continuous(labels = comma)
+```
+
+```{r, message=FALSE}
+#Adding day_of_the_week column
+uber_total %>%
+  mutate(
+    day_of_the_week = case_when(
+    Weekday == 1 ~ 'Sunday' ,
+    Weekday == 2 ~ 'Monday' ,
+    Weekday == 3 ~ 'Tuesday' ,
+    Weekday == 4 ~ 'Wednesday' ,
+    Weekday == 5 ~ 'Thursday' , 
+    Weekday == 6 ~ 'Friday' ,
+    Weekday == 7 ~ 'Saturday'
+  )
+  ) -> uber_total
+```
+
+```{r, message=FALSE}
+#Adjusting week of the day to the right order for plots below
+uber_total$day_of_the_week <- factor(uber_total$day_of_the_week, levels=c("Sunday","Saturday","Friday","Thursday", "Wednesday","Tuesday","Monday"))
+```
+
+
+```{r, message=FALSE}
+#Hourly pickups by day of Week in 2014
+uber_total %>%
+  group_by(Hour,day_of_the_week) %>%
+  tally()%>%
+  ggplot(mapping = aes(x=Hour, y=day_of_the_week, fill=n))+
+  geom_tile(colour='white') +
+  scale_x_continuous(breaks = seq(0,23,1)) +
+  theme_minimal()+
+  scale_fill_viridis(option = 'D') +
+  labs(x= 'Hour' ,
+       y= 'Weekday' ,
+       subtitle = 'Hourly pickups by day of Week in 2014' ,
+       fill = 'Number of pickups')
+```
+
+```{r, message=FALSE}
+weekdaylist<-c("Monday","Tuesday","Wednesday","Thursday","Friday")
+uber_total$Workday=ifelse(uber_total$day_of_the_week %in% weekdaylist ,"Weekday","Weekend")
+```
+
+```{r, message=FALSE}
+uber_total %>%
+  group_by(Date,Workday)%>%
+  summarise(Trips = n())%>% 
+  ggplot(mapping = aes(x=Date,y=Trips,color=Workday))+
+  scale_color_manual(values =c("royalblue4","red2"))+
+  geom_point()+geom_smooth(method=lm, fill='yellowgreen', 
+                           color='yellow1',se=FALSE,size=1, formula = y~x)+
+  ggtitle("Pickups:Weekdays vs. Weekends")+ylab("Total Pickups per Day")
+```
+
+
+```{r, message=FALSE}
+#Pickup numbers change monthly per base
+uber_total %>%
+  group_by(Month, Base) %>%
+  tally()%>%
+  ggplot(mapping = aes(x=Month, y=n, colour=Base))+
+  geom_line()+
+  theme_minimal()+
+  scale_y_continuous(labels = comma)+
+  labs(x= 'Month',
+       y = 'Pickup',
+       title = 'Pickup numbers change monthly per base',
+       subtitle = 'B02764 and B02617 see big rise since August')
+```
+
+```{r, message=FALSE}
+#Hex Map of Geographical Location of Uber Rides
+ggplot(data = uber_total , mapping= aes(x = Lat, y = Lon)) + 
+    geom_hex(bins = 80) + 
+    ggtitle('Hex Map of Geographical Location of Uber Rides') + 
+    xlab('Latitude (Degrees North)')  +
+    ylab('Longitude (Degrees East)') +
+  labs(subtitle = 'Most rides located around 40.7° N, 74° W')
+```
+
+```{r, message=FALSE}
+#NY Uber Rides Map During 2014 Apr-Sep
+min_lat <- 40.5774
+max_lat <- 40.9176
+min_long <- -74.15
+max_long <- -73.7004
+ggplot(uber_total, aes(x=Lon, y=Lat)) +
+geom_point(size = 0.1 , colour= 'blue') +
+scale_x_continuous(limits = c(min_long, max_long)) +
+scale_y_continuous(limits = c(min_lat, max_lat)) +
+theme_map()  +
+ggtitle("NY Uber Rides Map During 2014 Apr-Sep")+
+labs(subtitle = 'Most rides located at Manhattan, Brooklyn, Queens')
+```
+
+```{r, message=FALSE}
+#Choosing the Top 30 locations in 2014 by total volumes
+library(leaflet)
+uber_2014_top <- uber_total %>%
+    count(Lat, Lon, sort = TRUE) %>%
+    head(30)
+```
+
+```{r, message=FALSE}
+#The Top 30 locations in 2014 by total volumes map
+leaflet(uber_2014_top) %>%
+  addTiles() %>%
+  setView(-74.15, 40.91, zoom = 8) %>%
+  addMarkers(~Lon, ~Lat)
+```
+
+```{r, message=FALSE}
+#Choosing the Top 30 locations in 2014 by total volumes in weekday morning peak hours
+uber_morning_peak_weekday <- uber_total %>%
+    filter(Workday == 'Weekday') %>%
+    filter(Hour %in% c(7,8,9)) %>%
+    count(Lat, Lon, sort = TRUE) %>%
+    head(30)
+    
+```
+
+```{r, message=FALSE}
+#The Top 30 locations in 2014 by total volumes map in weekday morning peak hours
+leaflet(uber_morning_peak_weekday) %>%
+    addTiles() %>%
+    setView(-74.15, 40.91, zoom = 8) %>%
+    addMarkers(~Lon, ~Lat)
+```
+
+```{r, message=FALSE}
+#Choosing the Top 30 locations in 2014 by total volumes in weekday evening peak hours
+uber_evening_peak_weekday <- uber_total %>%
+    filter(Workday == 'Weekday') %>%
+    filter(Hour %in% c(17,18,19,20)) %>%
+    count(Lat, Lon, sort = TRUE) %>%
+    head(30)
+```
+
+```{r, message=FALSE}
+#The Top 30 locations in 2014 by total volumes map in weekday evening peak hours
+leaflet(uber_evening_peak_weekday) %>%
+    addTiles() %>%
+    setView(-74.15, 40.91, zoom = 8) %>%
+    addMarkers(~Lon, ~Lat)
+```
+
+```{r, message=FALSE}
+#Choosing the Top 30 locations in 2014 by total volumes in weekend party time
+uber_party_1 <- uber_total %>%
+    filter(Workday == 'Weekend') %>%
+    filter(Hour %in% c(0,1,2,3)) %>%
+    count(Lat, Lon, sort = TRUE) %>%
+    head(30)
+```
+
+```{r, message=FALSE}
+#The Top 30 locations in 2014 by total volumes map in weekend party time
+leaflet(uber_party_1) %>%
+    addTiles() %>%
+    setView(-74.15, 40.91, zoom = 8) %>%
+    addMarkers(~Lon, ~Lat)
+```
+
+```{r, message=FALSE}
+#Another version of party map
+#To get the map of NY City
+newyork <- get_map(location = c(-74.5477,40.4553,-73.1525,41.0618),source = "osm")
+```
+
+
+```{r, message=FALSE}
+#Filtering the data of party time
+uber_party_2 <- uber_total %>%
+    filter(Workday == 'Weekend') %>%
+    filter(Hour %in% c(0,1,2,3))
+```
+
+```{r, message=FALSE, warning=FALSE}
+#Getting the map
+ggmap(newyork)+
+  geom_point(data = uber_party_2, mapping = aes(x= Lon , y= Lat) ,alpha = 0.03)
+```
+
+```{r, message=FALSE, warning=FALSE}
+#The Gif of NY Uber Rides Map Changes During Apr 2014
+p <- ggplot(data=subset(uber_total,Month==4), aes(x=Lon, y=Lat)) +
+geom_point(size = 0.1 , colour= 'blue') +
+scale_x_continuous(limits = c(min_long, max_long)) +
+scale_y_continuous(limits = c(min_lat, max_lat)) +
+theme_map()  +
+labs(subtitle = 'Date:{frame_time}')+
+ggtitle("NY Uber Rides Map Changes During Apr 2014")+
+transition_time(Date)
+```
+
+
+```{r, message=FALSE, warning=FALSE}
+p
+```
+
+# I decided to add data in 2015 to have a deep understanding in NY Uber rider situation
+
+```{r, message=FALSE}
+#Changing the format of the original table to merge data in 2 years
+uber_total %>% select(`Date_Time`,'Base') -> uber14
+names(uber14) <- c("Date","Base")
+```
+
+
+```{r, message=FALSE}
+#Loading the data in 2015 and changing the format
+janjune_15 <- read_csv("project/archive (5)/uber-raw-data-janjune-15.csv")
+janjune_15 %>% select(`Pickup_date`,'Affiliated_base_num') -> uber15
+names(uber15) <- c("Date","Base")
+```
+
+```{r, message=FALSE}
+##Merging the data in 2014 and 2015
+uber_all <- bind_rows(uber14, uber15)
+```
+
+```{r, message=FALSE}
+#Changing date format
+uber_all$Date <- as.POSIXct(uber_all$Date, format = "%Y-%m-%d %H:%M:%S")
+```
+
+
+```{r, message=FALSE}
+#Adding 'year', 'month','day','weekday','hour','minute' column, changing the date to the right format
+uber_all %>% mutate(year = year(Date),
+                            month = month(Date),
+                            monthname = month(Date, label = TRUE, abbr = FALSE),
+                            day = day(Date),
+                            weekday = wday(Date, label = TRUE, abbr = FALSE),
+                            hour = hour(Date),
+                            minute = minute(Date)) -> uber_all
+```
+
+```{r, message=FALSE}
+#Picking data only in April, May ,June 2015 to compare situations in these 3 months in 2014 and 2015
+uber_all %>% 
+  filter(month == 4 | month == 5 | month == 6) -> uber_all
+```
+
+
+```{r, message=FALSE}
+#Adjusting week of the day to the right order for plots below
+uber_all$weekday <- factor(uber_all$weekday, levels=c("Sunday","Saturday","Friday","Thursday", "Wednesday","Tuesday","Monday"))
+```
+
+```{r, message=FALSE}
+#Hourly pickups by day of Week in 2014
+uber_all %>%
+  filter(year == 2015)%>%
+  group_by(weekday, hour)%>%
+  summarise(Trips = n())%>%
+  ggplot(mapping = aes(x=hour, y=weekday, fill=Trips))+
+  geom_tile(colour='white') +
+  scale_x_continuous(breaks = seq(0,23,1)) +
+  theme_minimal()+
+  scale_fill_viridis(option = 'D') +
+  labs(x= 'Hour' ,
+       y= 'Weekday' ,
+       subtitle = 'Hourly pickups by day of Week in 2015' ,
+       fill = 'Number of pickups')
+```
+
+```{r, message=FALSE}
+#Trips per hour
+uber_all %>%
+  group_by(hour) %>%
+  summarise(Trips = n())%>%
+  ggplot(aes(x= hour , y= Trips)) +
+  scale_x_continuous(breaks = seq(0,23,1)) +
+  geom_col(fill="red")+
+  labs(x= 'Hour' ,
+       y= 'Trips' ,
+       title = 'Trips each hour in 2015 Apr-Jun' ,
+       subtitle = 'Peak hours in 8-10 AM and 6-11 PM') +
+  scale_y_continuous(labels = comma)
+```
+
+```{r, message=FALSE}
+#The Volume Difference By Bases Between 2014 And 2015
+uber_all %>%
+  group_by(year,Base) %>%
+  filter(Base %in% c('B02512','B02598','B02617','B02682','B02764'))%>%
+  summarise(Trips = n())%>%
+  ggplot(mapping = aes(x=reorder(Base,Trips),y=Trips,colour=as.factor(year)))+
+  geom_point()+
+  coord_flip()+
+  scale_color_discrete(name = "Year:")+
+  theme_classic()+
+  labs(y= 'Base' ,
+       title = 'The Volume Difference By Bases Between 2014 And 2015' ,
+       subtitle = 'A big rise in B02682 and B02764 after one year')
+```
+
+# Conclusion
+#### 1.Most trips happened at 7-8 AM at weekday morning, 6-10 PM at weekday evening , 0-2 AM at weekend days.
+#### 2.Most trips located at two airports(John F. Kennedy International Airport and LaGuardia Airport)
+#### 3.Most trips located at Manhattan, Brooklyn and Queens
+
+
